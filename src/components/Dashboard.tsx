@@ -164,13 +164,21 @@ export default function Dashboard({ data }: DashboardProps) {
     }));
   };
 
-  const sortData = <T extends { totalSpend?: number; amountSpent?: number; totalResults?: number; results?: number; avgRoas?: number; purchaseRoas?: number; avgCtr?: number; ctrAll?: number }>(
+  const sortData = <T extends { totalSpend?: number; amountSpent?: number; totalResults?: number; results?: number; avgRoas?: number; purchaseRoas?: number; avgCtr?: number; ctrAll?: number; deliveryStatus?: string }>(
     data: T[], 
     config: SortConfig
   ): T[] => {
-    if (!config.column) return data;
-
     return [...data].sort((a, b) => {
+      // First priority: Always show active items first
+      const aIsActive = a.deliveryStatus === 'active';
+      const bIsActive = b.deliveryStatus === 'active';
+      
+      if (aIsActive && !bIsActive) return -1;
+      if (!aIsActive && bIsActive) return 1;
+      
+      // Second priority: Apply column sorting within same status group
+      if (!config.column) return 0;
+
       let aValue = 0;
       let bValue = 0;
 
@@ -587,6 +595,8 @@ export default function Dashboard({ data }: DashboardProps) {
                         ? 'bg-green-50 hover:bg-green-100' 
                         : campaign.avgRoas <= 1.0
                         ? 'bg-red-50 hover:bg-red-100'
+                        : campaign.avgRoas > 1.0 && campaign.avgRoas < 2.0
+                        ? 'bg-yellow-50 hover:bg-yellow-100'
                         : index % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'
                     } cursor-pointer transition-colors`}
                     onClick={() => handleCampaignClick(campaign.campaignId)}
@@ -658,6 +668,8 @@ export default function Dashboard({ data }: DashboardProps) {
                         ? 'bg-green-50 hover:bg-green-100' 
                         : adSet.avgRoas <= 1.0
                         ? 'bg-red-50 hover:bg-red-100'
+                        : adSet.avgRoas > 1.0 && adSet.avgRoas < 2.0
+                        ? 'bg-yellow-50 hover:bg-yellow-100'
                         : index % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'
                     } cursor-pointer transition-colors`}
                     onClick={() => handleAdSetClick(adSet.adSetId)}
@@ -769,6 +781,8 @@ export default function Dashboard({ data }: DashboardProps) {
                         ? 'bg-green-50' 
                         : ad.purchaseRoas <= 1.0
                         ? 'bg-red-50'
+                        : ad.purchaseRoas > 1.0 && ad.purchaseRoas < 2.0
+                        ? 'bg-yellow-50'
                         : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                     }
                   >
