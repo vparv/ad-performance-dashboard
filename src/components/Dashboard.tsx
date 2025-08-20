@@ -28,12 +28,29 @@ const formatNumber = (value: number) => {
   return new Intl.NumberFormat('en-US').format(value);
 };
 
+interface SortConfig {
+  column: 'spend' | 'results' | 'roas' | 'ctr' | null;
+  direction: 'asc' | 'desc';
+}
+
+interface FilterConfig {
+  spendMin: number | null;
+  roasMin: number | null;
+  roasMax: number | null;
+}
+
 export default function Dashboard({ data }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adsets' | 'ads'>('overview');
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [selectedAdSet, setSelectedAdSet] = useState<string | null>(null);
   const [showPlatformColumn, setShowPlatformColumn] = useState(true);
   const [showPlacementColumn, setShowPlacementColumn] = useState(true);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({ column: 'spend', direction: 'desc' });
+  const [filters, setFilters] = useState<FilterConfig>({
+    spendMin: null,
+    roasMin: null,
+    roasMax: null
+  });
 
   const campaigns = useMemo(() => aggregateByCampaign(data), [data]);
   const adSets = useMemo(() => aggregateByAdSet(data), [data]);
@@ -140,6 +157,91 @@ export default function Dashboard({ data }: DashboardProps) {
     setActiveTab('overview');
   };
 
+  const handleSort = (column: 'spend' | 'results' | 'roas' | 'ctr') => {
+    setSortConfig(prev => ({
+      column,
+      direction: prev.column === column && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
+  };
+
+  const sortData = <T extends { totalSpend?: number; amountSpent?: number; totalResults?: number; results?: number; avgRoas?: number; purchaseRoas?: number; avgCtr?: number; ctrAll?: number }>(
+    data: T[], 
+    config: SortConfig
+  ): T[] => {
+    if (!config.column) return data;
+
+    return [...data].sort((a, b) => {
+      let aValue = 0;
+      let bValue = 0;
+
+      switch (config.column) {
+        case 'spend':
+          aValue = a.totalSpend || a.amountSpent || 0;
+          bValue = b.totalSpend || b.amountSpent || 0;
+          break;
+        case 'results':
+          aValue = a.totalResults || a.results || 0;
+          bValue = b.totalResults || b.results || 0;
+          break;
+        case 'roas':
+          aValue = a.avgRoas || a.purchaseRoas || 0;
+          bValue = b.avgRoas || b.purchaseRoas || 0;
+          break;
+        case 'ctr':
+          aValue = a.avgCtr || a.ctrAll || 0;
+          bValue = b.avgCtr || b.ctrAll || 0;
+          break;
+      }
+
+      return config.direction === 'desc' ? bValue - aValue : aValue - bValue;
+    });
+  };
+
+  const filterData = <T extends { totalSpend?: number; amountSpent?: number; avgRoas?: number; purchaseRoas?: number }>(
+    data: T[], 
+    filterConfig: FilterConfig
+  ): T[] => {
+    return data.filter(item => {
+      // Get spend value
+      const spend = item.totalSpend || item.amountSpent || 0;
+      
+      // Get ROAS value
+      const roas = item.avgRoas || item.purchaseRoas || 0;
+      
+      // Apply spend filter
+      if (filterConfig.spendMin !== null && spend < filterConfig.spendMin) {
+        return false;
+      }
+      
+      // Apply ROAS min filter
+      if (filterConfig.roasMin !== null && roas < filterConfig.roasMin) {
+        return false;
+      }
+      
+      // Apply ROAS max filter
+      if (filterConfig.roasMax !== null && roas > filterConfig.roasMax) {
+        return false;
+      }
+      
+      return true;
+    });
+  };
+
+  const SortableHeader = ({ column, children }: { column: 'spend' | 'results' | 'roas' | 'ctr'; children: React.ReactNode }) => (
+    <th 
+      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
+      onClick={() => handleSort(column)}
+    >
+      <div className="flex items-center space-x-1">
+        <span>{children}</span>
+        <div className="flex flex-col">
+          <span className={`text-xs ${sortConfig.column === column && sortConfig.direction === 'asc' ? 'text-blue-600' : 'text-gray-300'}`}>▲</span>
+          <span className={`text-xs ${sortConfig.column === column && sortConfig.direction === 'desc' ? 'text-blue-600' : 'text-gray-300'}`}>▼</span>
+        </div>
+      </div>
+    </th>
+  );
+
   const summary = useMemo(() => {
     const totalSpend = data.reduce((sum, ad) => sum + ad.amountSpent, 0);
     const totalResults = data.reduce((sum, ad) => sum + ad.results, 0);
@@ -205,6 +307,92 @@ export default function Dashboard({ data }: DashboardProps) {
         </div>
       )}
 
+      {/* Filters */}
+      <div className="bg-white border border-gray-200 rounded-lg px-6 py-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-medium text-gray-900 mb-0">Filters</h3>
+          <button
+            onClick={() => setFilters({ spendMin: null, roasMin: null, roasMax: null })}
+            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 hover:bg-gray-100 rounded transition-colors"
+          >
+            Clear All
+          </button>
+        </div>
+        <div className="flex items-center space-x-6 mt-3">
+          {/* Spend Filter */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-medium text-gray-600">Spend ≥</label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 text-xs">$</span>
+              <input
+                type="number"
+                placeholder="0"
+                value={filters.spendMin || ''}
+                onChange={(e) => setFilters(prev => ({ 
+                  ...prev, 
+                  spendMin: e.target.value ? Number(e.target.value) : null 
+                }))}
+                className="pl-6 pr-3 py-1 text-xs border border-gray-300 rounded w-20 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* ROAS Min Filter */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-medium text-gray-600">ROAS ≥</label>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="0.0"
+              value={filters.roasMin || ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                roasMin: e.target.value ? Number(e.target.value) : null 
+              }))}
+              className="px-3 py-1 text-xs border border-gray-300 rounded w-20 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          {/* ROAS Max Filter */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-medium text-gray-600">ROAS ≤</label>
+            <input
+              type="number"
+              step="0.1"
+              placeholder="∞"
+              value={filters.roasMax || ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                roasMax: e.target.value ? Number(e.target.value) : null 
+              }))}
+              className="px-3 py-1 text-xs border border-gray-300 rounded w-20 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          {/* Active Filters Display */}
+          {(filters.spendMin || filters.roasMin || filters.roasMax) && (
+            <div className="flex items-center space-x-2 ml-4 pl-4 border-l border-gray-200">
+              <span className="text-xs text-gray-500">Active:</span>
+              {filters.spendMin && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
+                  Spend ≥ ${filters.spendMin}
+                </span>
+              )}
+              {filters.roasMin && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-green-100 text-green-700 rounded">
+                  ROAS ≥ {filters.roasMin}
+                </span>
+              )}
+              {filters.roasMax && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-red-100 text-red-700 rounded">
+                  ROAS ≤ {filters.roasMax}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Breadcrumb Navigation */}
       {(selectedCampaign || selectedAdSet) && (
         <div className="flex items-center space-x-2 text-sm text-gray-600 bg-gray-50 px-4 py-2 rounded-lg">
@@ -218,10 +406,7 @@ export default function Dashboard({ data }: DashboardProps) {
             <>
               <span>→</span>
               <button 
-                onClick={() => {
-                  setSelectedAdSet(null);
-                  setActiveTab('adsets');
-                }}
+                onClick={handleBackClick}
                 className="text-blue-600 hover:text-blue-800 hover:underline"
               >
                 {campaigns.find(c => c.campaignId === selectedCampaign)?.campaignName || 'Campaign'}
@@ -256,7 +441,19 @@ export default function Dashboard({ data }: DashboardProps) {
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key as 'overview' | 'campaigns' | 'adsets' | 'ads')}
+              onClick={() => {
+                setActiveTab(tab.key as 'overview' | 'campaigns' | 'adsets' | 'ads');
+                // Clear selections when clicking tabs to reset breadcrumb
+                if (tab.key === 'adsets') {
+                  setSelectedAdSet(null);
+                } else if (tab.key === 'campaigns') {
+                  setSelectedCampaign(null);
+                  setSelectedAdSet(null);
+                } else if (tab.key === 'overview') {
+                  setSelectedCampaign(null);
+                  setSelectedAdSet(null);
+                }
+              }}
               className={`py-2 px-1 border-b-2 font-medium text-sm ${
                 activeTab === tab.key
                   ? 'border-blue-500 text-blue-600'
@@ -372,20 +569,26 @@ export default function Dashboard({ data }: DashboardProps) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Spend</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
+                  <SortableHeader column="spend">Spend</SortableHeader>
+                  <SortableHeader column="results">Results</SortableHeader>
+                  <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="ctr">CTR</SortableHeader>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost/Result</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Sets</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ads</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {campaigns.map((campaign, index) => (
+                {sortData(filterData(campaigns, filters), sortConfig).map((campaign, index) => (
                   <tr 
                     key={`${campaign.campaignId}-${index}`} 
-                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 cursor-pointer transition-colors`}
+                    className={`${
+                      campaign.avgRoas >= 2.0 
+                        ? 'bg-green-50 hover:bg-green-100' 
+                        : campaign.avgRoas <= 1.0
+                        ? 'bg-red-50 hover:bg-red-100'
+                        : index % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'
+                    } cursor-pointer transition-colors`}
                     onClick={() => handleCampaignClick(campaign.campaignId)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -438,32 +641,36 @@ export default function Dashboard({ data }: DashboardProps) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Set</th>
-                  {!selectedCampaign && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                  )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Spend</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
+                  <SortableHeader column="spend">Spend</SortableHeader>
+                  <SortableHeader column="results">Results</SortableHeader>
+                  <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="ctr">CTR</SortableHeader>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost/Result</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ads</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredAdSets.slice(0, 50).map((adSet, index) => (
+                {sortData(filterData(filteredAdSets, filters), sortConfig).slice(0, 50).map((adSet, index) => (
                   <tr 
                     key={`${adSet.adSetId}-${index}`} 
-                    className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 cursor-pointer transition-colors`}
+                    className={`${
+                      adSet.avgRoas >= 2.0 
+                        ? 'bg-green-50 hover:bg-green-100' 
+                        : adSet.avgRoas <= 1.0
+                        ? 'bg-red-50 hover:bg-red-100'
+                        : index % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'
+                    } cursor-pointer transition-colors`}
                     onClick={() => handleAdSetClick(adSet.adSetId)}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4">
                       <div className="text-sm font-medium text-blue-600 hover:text-blue-800">{adSet.adSetName}</div>
-                      <div className="text-sm text-gray-500">ID: {adSet.adSetId}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {!selectedCampaign && (
+                          <div>Campaign: {adSet.campaignName}</div>
+                        )}
+                        <div>ID: {adSet.adSetId}</div>
+                      </div>
                     </td>
-                    {!selectedCampaign && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {adSet.campaignName}
-                      </td>
-                    )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatCurrency(adSet.totalSpend)}
                     </td>
@@ -475,6 +682,9 @@ export default function Dashboard({ data }: DashboardProps) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatPercent(adSet.avgCtr)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatCurrency(adSet.costPerResult)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {adSet.adCount}
@@ -535,10 +745,10 @@ export default function Dashboard({ data }: DashboardProps) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Spend</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
+                  <SortableHeader column="spend">Spend</SortableHeader>
+                  <SortableHeader column="results">Results</SortableHeader>
+                  <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="ctr">CTR</SortableHeader>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   {showPlatformColumn && (
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
@@ -549,11 +759,19 @@ export default function Dashboard({ data }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {aggregatedAds
-                  .sort((a, b) => b.amountSpent - a.amountSpent)
+                {sortData(filterData(aggregatedAds, filters), sortConfig)
                   .slice(0, selectedCampaign || selectedAdSet ? 500 : 100)
                   .map((ad, index) => (
-                  <tr key={`${ad.adId}-${index}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <tr 
+                    key={`${ad.adId}-${index}`} 
+                    className={
+                      ad.purchaseRoas >= 2.0 
+                        ? 'bg-green-50' 
+                        : ad.purchaseRoas <= 1.0
+                        ? 'bg-red-50'
+                        : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                    }
+                  >
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{ad.adName}</div>
                       <div className="text-xs text-gray-500 mt-1">
