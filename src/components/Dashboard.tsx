@@ -37,6 +37,30 @@ const formatNumber = (value: number) => {
   return new Intl.NumberFormat('en-US').format(value);
 };
 
+const generateCampaignUrl = (campaignId: string) => {
+  // Get current date and 3 days ago for the date range (4 days total like in your example)
+  const today = new Date();
+  const threeDaysAgo = new Date(today);
+  threeDaysAgo.setDate(today.getDate() - 3); // -3 for 4 total days (2025-08-17 to 2025-08-20)
+  
+  const formatDate = (date: Date) => date.toISOString().split('T')[0];
+  const dateRange = `${formatDate(threeDaysAgo)}_${formatDate(today)}`;
+  
+  return `https://adsmanager.facebook.com/adsmanager/manage/adsets?act=604804066640450&business_id=1084628270319068&nav_entry_point=ads_ecosystem_navigation_menu&date=${dateRange}&comparison_date=&insights_date=${dateRange}&insights_comparison_date=&selected_campaign_ids=${campaignId}&nav_source=ads_manager`;
+};
+
+const generateAdSetUrl = (adSetId: string) => {
+  // Get current date and 3 days ago for the date range (4 days total like in your example)
+  const today = new Date();
+  const threeDaysAgo = new Date(today);
+  threeDaysAgo.setDate(today.getDate() - 3); // -3 for 4 total days (2025-08-17 to 2025-08-20)
+  
+  const formatDate = (date: Date) => date.toISOString().split('T')[0];
+  const dateRange = `${formatDate(threeDaysAgo)}_${formatDate(today)}`;
+  
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads?act=604804066640450&business_id=1084628270319068&nav_entry_point=ads_ecosystem_navigation_menu&date=${dateRange}&comparison_date=&insights_date=${dateRange}&insights_comparison_date=&selected_adset_ids=${adSetId}&nav_source=ads_manager`;
+};
+
 interface SortConfig {
   column: 'spend' | 'results' | 'roas' | 'ctr' | null;
   direction: 'asc' | 'desc';
@@ -715,7 +739,25 @@ export default function Dashboard({ data }: DashboardProps) {
                     onClick={() => handleCampaignClick(campaign.campaignId)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-blue-600 hover:text-blue-800">{campaign.campaignName}</div>
+                      <div className="flex items-center space-x-2">
+                        <a
+                          href={generateCampaignUrl(campaign.campaignId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {campaign.campaignName}
+                        </a>
+                        <svg 
+                          className="w-3 h-3 text-gray-400" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </div>
                       <div className="text-sm text-gray-500">ID: {campaign.campaignId}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -788,7 +830,25 @@ export default function Dashboard({ data }: DashboardProps) {
                     onClick={() => handleAdSetClick(adSet.adSetId)}
                   >
                     <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-blue-600 hover:text-blue-800">{adSet.adSetName}</div>
+                      <div className="flex items-center space-x-2">
+                        <a
+                          href={generateAdSetUrl(adSet.adSetId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {adSet.adSetName}
+                        </a>
+                        <svg 
+                          className="w-3 h-3 text-gray-400" 
+                          fill="none" 
+                          stroke="currentColor" 
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </div>
                       <div className="text-xs text-gray-500 mt-1">
                         {!selectedCampaign && (
                           <div>Campaign: {adSet.campaignName}</div>
