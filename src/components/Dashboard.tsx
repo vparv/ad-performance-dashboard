@@ -32,6 +32,8 @@ export default function Dashboard({ data }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adsets' | 'ads'>('overview');
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [selectedAdSet, setSelectedAdSet] = useState<string | null>(null);
+  const [showPlatformColumn, setShowPlatformColumn] = useState(true);
+  const [showPlacementColumn, setShowPlacementColumn] = useState(true);
 
   const campaigns = useMemo(() => aggregateByCampaign(data), [data]);
   const adSets = useMemo(() => aggregateByAdSet(data), [data]);
@@ -488,34 +490,62 @@ export default function Dashboard({ data }: DashboardProps) {
       {activeTab === 'ads' && (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">
-              Individual Ad Performance
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                ({aggregatedAds.length} unique ads{filteredAds.length !== aggregatedAds.length ? `, ${filteredAds.length} total rows` : ''})
-              </span>
-            </h3>
-            {!selectedCampaign && !selectedAdSet && (
-              <p className="text-sm text-gray-500 mt-1">Showing top 100 ads by spend</p>
-            )}
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">
+                  Individual Ad Performance
+                  <span className="text-sm font-normal text-gray-500 ml-2">
+                    ({aggregatedAds.length} unique ads{filteredAds.length !== aggregatedAds.length ? `, ${filteredAds.length} total rows` : ''})
+                  </span>
+                </h3>
+                {!selectedCampaign && !selectedAdSet && (
+                  <p className="text-sm text-gray-500 mt-1">Showing top 100 ads by spend</p>
+                )}
+              </div>
+              <div className="flex items-center space-x-3">
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowPlatformColumn(!showPlatformColumn)}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                      showPlatformColumn 
+                        ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Platform
+                  </button>
+                </div>
+                <div className="flex items-center">
+                  <button
+                    onClick={() => setShowPlacementColumn(!showPlacementColumn)}
+                    className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                      showPlacementColumn 
+                        ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' 
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    Placement
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad</th>
-                  {!selectedCampaign && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaign</th>
-                  )}
-                  {!selectedAdSet && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Set</th>
-                  )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Placement</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Spend</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  {showPlatformColumn && (
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Platform</th>
+                  )}
+                  {showPlacementColumn && (
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Placement</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -524,34 +554,16 @@ export default function Dashboard({ data }: DashboardProps) {
                   .slice(0, selectedCampaign || selectedAdSet ? 500 : 100)
                   .map((ad, index) => (
                   <tr key={`${ad.adId}-${index}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{ad.adName}</div>
-                      <div className="text-sm text-gray-500">ID: {ad.adId}</div>
-                    </td>
-                    {!selectedCampaign && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {ad.campaignName}
-                      </td>
-                    )}
-                    {!selectedAdSet && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {ad.adSetName}
-                      </td>
-                    )}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-wrap gap-1">
-                        {ad.platforms.map((platform: string, i: number) => (
-                          <span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {platform}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="space-y-1">
-                        {ad.placements.map((placement: string, i: number) => (
-                          <div key={i} className="text-xs text-gray-600">{placement}</div>
-                        ))}
+                      <div className="text-xs text-gray-500 mt-1">
+                        {!selectedCampaign && (
+                          <div>Campaign: {ad.campaignName}</div>
+                        )}
+                        {!selectedAdSet && (
+                          <div>Ad Set: {ad.adSetName}</div>
+                        )}
+                        <div>ID: {ad.adId}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -573,6 +585,31 @@ export default function Dashboard({ data }: DashboardProps) {
                         {ad.deliveryStatus}
                       </span>
                     </td>
+                    {showPlatformColumn && (
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          {ad.platforms.map((platform: string, i: number) => (
+                            <span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {platform}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    )}
+                    {showPlacementColumn && (
+                      <td className="px-6 py-4 text-right">
+                        <div className="text-xs text-gray-600 space-y-1 max-w-[120px] ml-auto">
+                          {ad.placements.slice(0, 4).map((placement: string, i: number) => (
+                            <div key={i} className="truncate">
+                              {placement.length > 15 ? placement.substring(0, 15) + '...' : placement}
+                            </div>
+                          ))}
+                          {ad.placements.length > 4 && (
+                            <div className="text-gray-400 italic">+{ad.placements.length - 4} more</div>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
