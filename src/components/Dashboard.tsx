@@ -20,6 +20,15 @@ const formatCurrency = (value: number) => {
   }).format(value);
 };
 
+const formatCurrencyDetailed = (value: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+};
+
 const formatPercent = (value: number) => {
   return `${value.toFixed(2)}%`;
 };
@@ -37,6 +46,8 @@ interface FilterConfig {
   spendMin: number | null;
   roasMin: number | null;
   roasMax: number | null;
+  dateStart: string | null;
+  dateEnd: string | null;
 }
 
 export default function Dashboard({ data }: DashboardProps) {
@@ -49,11 +60,97 @@ export default function Dashboard({ data }: DashboardProps) {
   const [filters, setFilters] = useState<FilterConfig>({
     spendMin: null,
     roasMin: null,
-    roasMax: null
+    roasMax: null,
+    dateStart: null,
+    dateEnd: null
   });
 
-  const campaigns = useMemo(() => aggregateByCampaign(data), [data]);
-  const adSets = useMemo(() => aggregateByAdSet(data), [data]);
+  // Helper function for filtering raw data (with date field)
+  const filterData = <T extends { totalSpend?: number; amountSpent?: number; avgRoas?: number; purchaseRoas?: number; day?: string; reportingStarts?: string; reportingEnds?: string; starts?: string; ends?: string }>(
+    data: T[], 
+    filterConfig: FilterConfig
+  ): T[] => {
+    return data.filter(item => {
+      // Get spend value
+      const spend = item.totalSpend || item.amountSpent || 0;
+      
+      // Get ROAS value
+      const roas = item.avgRoas || item.purchaseRoas || 0;
+      
+      // For daily data, use the 'day' field; for aggregated data, use reporting ranges
+      const itemDate = item.day;
+      
+      // Apply date filters
+      if (filterConfig.dateStart || filterConfig.dateEnd) {
+        // Skip items without date information
+        if (!itemDate) {
+          return false;
+        }
+        
+        // For daily data, simply check if the day falls within the filter range
+        if (filterConfig.dateStart && itemDate < filterConfig.dateStart) {
+          return false;
+        }
+        
+        if (filterConfig.dateEnd && itemDate > filterConfig.dateEnd) {
+          return false;
+        }
+      }
+      
+      // Apply spend filter
+      if (filterConfig.spendMin !== null && spend < filterConfig.spendMin) {
+        return false;
+      }
+      
+      // Apply ROAS min filter
+      if (filterConfig.roasMin !== null && roas < filterConfig.roasMin) {
+        return false;
+      }
+      
+      // Apply ROAS max filter
+      if (filterConfig.roasMax !== null && roas > filterConfig.roasMax) {
+        return false;
+      }
+      
+      return true;
+    });
+  };
+
+  // Helper function for filtering aggregated data (without date field, already date-filtered)
+  const filterAggregatedData = <T extends { totalSpend?: number; amountSpent?: number; avgRoas?: number; purchaseRoas?: number }>(
+    data: T[], 
+    filterConfig: FilterConfig
+  ): T[] => {
+    return data.filter(item => {
+      // Get spend value
+      const spend = item.totalSpend || item.amountSpent || 0;
+      
+      // Get ROAS value
+      const roas = item.avgRoas || item.purchaseRoas || 0;
+      
+      // Apply spend filter
+      if (filterConfig.spendMin !== null && spend < filterConfig.spendMin) {
+        return false;
+      }
+      
+      // Apply ROAS min filter
+      if (filterConfig.roasMin !== null && roas < filterConfig.roasMin) {
+        return false;
+      }
+      
+      // Apply ROAS max filter
+      if (filterConfig.roasMax !== null && roas > filterConfig.roasMax) {
+        return false;
+      }
+      
+      return true;
+    });
+  };
+
+  const filteredBaseData = useMemo(() => filterData(data, { spendMin: null, roasMin: null, roasMax: null, dateStart: filters.dateStart, dateEnd: filters.dateEnd }), [data, filters.dateStart, filters.dateEnd]);
+  
+  const campaigns = useMemo(() => aggregateByCampaign(filteredBaseData), [filteredBaseData]);
+  const adSets = useMemo(() => aggregateByAdSet(filteredBaseData), [filteredBaseData]);
 
   // Filtered data based on selections
   const filteredAdSets = useMemo(() => {
@@ -64,15 +161,15 @@ export default function Dashboard({ data }: DashboardProps) {
   const filteredAds = useMemo(() => {
     let baseData;
     if (selectedAdSet) {
-      baseData = data.filter(ad => ad.adSetId === selectedAdSet);
+      baseData = filteredBaseData.filter(ad => ad.adSetId === selectedAdSet);
     } else if (selectedCampaign) {
-      baseData = data.filter(ad => ad.campaignId === selectedCampaign);
+      baseData = filteredBaseData.filter(ad => ad.campaignId === selectedCampaign);
     } else {
-      baseData = data;
+      baseData = filteredBaseData;
     }
     // Filter out placement rows with zero spend
     return baseData.filter(ad => ad.amountSpent > 0);
-  }, [data, selectedCampaign, selectedAdSet]);
+  }, [filteredBaseData, selectedCampaign, selectedAdSet]);
 
   // Aggregate ads by unique Ad ID for cleaner display
   const aggregatedAds = useMemo(() => {
@@ -205,36 +302,6 @@ export default function Dashboard({ data }: DashboardProps) {
     });
   };
 
-  const filterData = <T extends { totalSpend?: number; amountSpent?: number; avgRoas?: number; purchaseRoas?: number }>(
-    data: T[], 
-    filterConfig: FilterConfig
-  ): T[] => {
-    return data.filter(item => {
-      // Get spend value
-      const spend = item.totalSpend || item.amountSpent || 0;
-      
-      // Get ROAS value
-      const roas = item.avgRoas || item.purchaseRoas || 0;
-      
-      // Apply spend filter
-      if (filterConfig.spendMin !== null && spend < filterConfig.spendMin) {
-        return false;
-      }
-      
-      // Apply ROAS min filter
-      if (filterConfig.roasMin !== null && roas < filterConfig.roasMin) {
-        return false;
-      }
-      
-      // Apply ROAS max filter
-      if (filterConfig.roasMax !== null && roas > filterConfig.roasMax) {
-        return false;
-      }
-      
-      return true;
-    });
-  };
-
   const SortableHeader = ({ column, children }: { column: 'spend' | 'results' | 'roas' | 'ctr'; children: React.ReactNode }) => (
     <th 
       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
@@ -251,17 +318,34 @@ export default function Dashboard({ data }: DashboardProps) {
   );
 
   const summary = useMemo(() => {
-    const totalSpend = data.reduce((sum, ad) => sum + ad.amountSpent, 0);
-    const totalResults = data.reduce((sum, ad) => sum + ad.results, 0);
-    const totalImpressions = data.reduce((sum, ad) => sum + ad.impressions, 0);
-    const totalReach = data.reduce((sum, ad) => sum + ad.reach, 0);
-    const avgRoas = totalSpend > 0 ? data.reduce((sum, ad) => sum + (ad.purchaseRoas * ad.amountSpent), 0) / totalSpend : 0;
-    const avgCtr = totalSpend > 0 ? data.reduce((sum, ad) => sum + (ad.ctrAll * ad.amountSpent), 0) / totalSpend : 0;
+    const totalSpend = filteredBaseData.reduce((sum, ad) => sum + ad.amountSpent, 0);
+    const totalResults = filteredBaseData.reduce((sum, ad) => sum + ad.results, 0);
+    const totalImpressions = filteredBaseData.reduce((sum, ad) => sum + ad.impressions, 0);
+    const totalReach = filteredBaseData.reduce((sum, ad) => sum + ad.reach, 0);
+    const avgRoas = totalSpend > 0 ? filteredBaseData.reduce((sum, ad) => sum + (ad.purchaseRoas * ad.amountSpent), 0) / totalSpend : 0;
+    const avgCtr = totalSpend > 0 ? filteredBaseData.reduce((sum, ad) => sum + (ad.ctrAll * ad.amountSpent), 0) / totalSpend : 0;
 
-    // Get date range from the data
-    const dates = data.map(ad => ad.reportingStarts).filter(date => date);
-    const startDate = dates.length > 0 ? dates.reduce((min, date) => date < min ? date : min) : '';
-    const endDate = data.map(ad => ad.reportingEnds).filter(date => date).reduce((max, date) => date > max ? date : max, '');
+    // Get date range from the filtered data or use filter dates
+    let startDate = '';
+    let endDate = '';
+    
+    if (filters.dateStart || filters.dateEnd) {
+      // If user has set date filters, show those
+      startDate = filters.dateStart || '';
+      endDate = filters.dateEnd || '';
+    } else {
+      // For daily data, show the actual range from 'day' field
+      const days = filteredBaseData.map(ad => ad.day).filter(date => date);
+      if (days.length > 0) {
+        startDate = days.reduce((min, date) => date < min ? date : min);
+        endDate = days.reduce((max, date) => date > max ? date : max);
+      } else {
+        // Fallback to reporting dates for aggregated data
+        const dates = filteredBaseData.map(ad => ad.reportingStarts).filter(date => date);
+        startDate = dates.length > 0 ? dates.reduce((min, date) => date < min ? date : min) : '';
+        endDate = filteredBaseData.map(ad => ad.reportingEnds).filter(date => date).reduce((max, date) => date > max ? date : max, '');
+      }
+    }
 
     return {
       totalSpend,
@@ -273,10 +357,10 @@ export default function Dashboard({ data }: DashboardProps) {
       costPerResult: totalResults > 0 ? totalSpend / totalResults : 0,
       uniqueCampaigns: campaigns.length,
       uniqueAdSets: adSets.length,
-      totalAds: new Set(data.map(ad => ad.adId)).size,
+      totalAds: new Set(filteredBaseData.map(ad => ad.adId)).size,
       dateRange: startDate && endDate ? `${startDate} - ${endDate}` : '',
     };
-  }, [data, campaigns, adSets]);
+  }, [filteredBaseData, campaigns, adSets, filters.dateStart, filters.dateEnd]);
 
   const topCampaignChartData = campaigns.slice(0, 10).map(campaign => ({
     name: campaign.campaignName.substring(0, 30) + (campaign.campaignName.length > 30 ? '...' : ''),
@@ -286,7 +370,7 @@ export default function Dashboard({ data }: DashboardProps) {
   }));
 
   const platformData = useMemo(() => {
-    const platformStats = data.reduce((acc, ad) => {
+    const platformStats = filteredBaseData.reduce((acc, ad) => {
       if (!acc[ad.platform]) {
         acc[ad.platform] = { platform: ad.platform, spend: 0, results: 0 };
       }
@@ -296,7 +380,7 @@ export default function Dashboard({ data }: DashboardProps) {
     }, {} as Record<string, { platform: string; spend: number; results: number }>);
 
     return Object.values(platformStats);
-  }, [data]);
+  }, [filteredBaseData]);
 
   return (
     <div className="space-y-6">
@@ -320,13 +404,37 @@ export default function Dashboard({ data }: DashboardProps) {
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-medium text-gray-900 mb-0">Filters</h3>
           <button
-            onClick={() => setFilters({ spendMin: null, roasMin: null, roasMax: null })}
+            onClick={() => setFilters({ spendMin: null, roasMin: null, roasMax: null, dateStart: null, dateEnd: null })}
             className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 hover:bg-gray-100 rounded transition-colors"
           >
             Clear All
           </button>
         </div>
-        <div className="flex items-center space-x-6 mt-3">
+        <div className="flex items-center flex-wrap gap-6 mt-3">
+          {/* Date Range Filter */}
+          <div className="flex items-center space-x-2">
+            <label className="text-xs font-medium text-gray-600">From</label>
+            <input
+              type="date"
+              value={filters.dateStart || ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                dateStart: e.target.value || null 
+              }))}
+              className="px-3 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <label className="text-xs font-medium text-gray-600">To</label>
+            <input
+              type="date"
+              value={filters.dateEnd || ''}
+              onChange={(e) => setFilters(prev => ({ 
+                ...prev, 
+                dateEnd: e.target.value || null 
+              }))}
+              className="px-3 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
           {/* Spend Filter */}
           <div className="flex items-center space-x-2">
             <label className="text-xs font-medium text-gray-600">Spend ≥</label>
@@ -378,9 +486,14 @@ export default function Dashboard({ data }: DashboardProps) {
           </div>
 
           {/* Active Filters Display */}
-          {(filters.spendMin || filters.roasMin || filters.roasMax) && (
-            <div className="flex items-center space-x-2 ml-4 pl-4 border-l border-gray-200">
+          {(filters.dateStart || filters.dateEnd || filters.spendMin || filters.roasMin || filters.roasMax) && (
+            <div className="flex items-center flex-wrap gap-2 ml-4 pl-4 border-l border-gray-200">
               <span className="text-xs text-gray-500">Active:</span>
+              {(filters.dateStart || filters.dateEnd) && (
+                <span className="inline-flex items-center px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">
+                  {filters.dateStart || 'Start'} → {filters.dateEnd || 'End'}
+                </span>
+              )}
               {filters.spendMin && (
                 <span className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
                   Spend ≥ ${filters.spendMin}
@@ -587,7 +700,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortData(filterData(campaigns, filters), sortConfig).map((campaign, index) => (
+                {sortData(filterAggregatedData(campaigns, filters), sortConfig).map((campaign, index) => (
                   <tr 
                     key={`${campaign.campaignId}-${index}`} 
                     className={`${
@@ -618,7 +731,7 @@ export default function Dashboard({ data }: DashboardProps) {
                       {formatPercent(campaign.avgCtr)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatCurrency(campaign.costPerResult)}
+                      {formatCurrencyDetailed(campaign.costPerResult)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {campaign.adSetCount}
@@ -660,7 +773,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortData(filterData(filteredAdSets, filters), sortConfig).slice(0, 50).map((adSet, index) => (
+                {sortData(filterAggregatedData(filteredAdSets, filters), sortConfig).slice(0, 50).map((adSet, index) => (
                   <tr 
                     key={`${adSet.adSetId}-${index}`} 
                     className={`${
@@ -696,7 +809,7 @@ export default function Dashboard({ data }: DashboardProps) {
                       {formatPercent(adSet.avgCtr)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatCurrency(adSet.costPerResult)}
+                      {formatCurrencyDetailed(adSet.costPerResult)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {adSet.adCount}
@@ -771,7 +884,7 @@ export default function Dashboard({ data }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {sortData(filterData(aggregatedAds, filters), sortConfig)
+                {sortData(filterAggregatedData(aggregatedAds, filters), sortConfig)
                   .slice(0, selectedCampaign || selectedAdSet ? 500 : 100)
                   .map((ad, index) => (
                   <tr 

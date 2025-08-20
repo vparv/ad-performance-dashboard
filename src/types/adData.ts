@@ -35,6 +35,7 @@ export interface AdPerformanceData {
   ends: string;
   reportingStarts: string;
   reportingEnds: string;
+  day: string; // Daily performance date
   
   // Attribution
   attributionSetting: string;

@@ -52,6 +52,7 @@ export const parseAdPerformanceCSV = (csvContent: string): Promise<AdPerformance
               resultRate: parseNumber(row['Result rate']),
               reportingStarts: cleanString(row['Reporting starts']),
               reportingEnds: cleanString(row['Reporting ends']),
+              day: cleanString(row['Day']), // Add the daily date field
             };
           });
 
@@ -104,7 +105,6 @@ export const aggregateByCampaign = (data: AdPerformanceData[]): CampaignSummary[
     campaign.totalResults += row.results;
     campaign.totalImpressions += row.impressions;
     campaign.totalReach += row.reach;
-    campaign.adCount += 1;
   });
 
   // Calculate averages and unique ad sets
@@ -119,13 +119,23 @@ export const aggregateByCampaign = (data: AdPerformanceData[]): CampaignSummary[
     campaign.adCount = uniqueAds.size; // Fix: count unique ads, not total rows
     campaign.costPerResult = campaign.totalResults > 0 ? campaign.totalSpend / campaign.totalResults : 0;
     
-    // Calculate weighted averages
+    // Calculate weighted averages across all daily records
     const totalSpend = campaign.totalSpend;
     if (totalSpend > 0) {
-      campaign.avgRoas = campaignAds.reduce((sum, ad) => 
-        sum + (ad.purchaseRoas * ad.amountSpent), 0) / totalSpend;
-      campaign.avgCtr = campaignAds.reduce((sum, ad) => 
-        sum + (ad.ctrAll * ad.amountSpent), 0) / totalSpend;
+      const totalRoasWeighted = campaignAds.reduce((sum, ad) => {
+        // Only include valid ROAS values (not NaN or 0) in the weighted average
+        const roas = isNaN(ad.purchaseRoas) ? 0 : ad.purchaseRoas;
+        return sum + (roas * ad.amountSpent);
+      }, 0);
+      
+      const totalCtrWeighted = campaignAds.reduce((sum, ad) => {
+        // Only include valid CTR values (not NaN or 0) in the weighted average  
+        const ctr = isNaN(ad.ctrAll) ? 0 : ad.ctrAll;
+        return sum + (ctr * ad.amountSpent);
+      }, 0);
+      
+      campaign.avgRoas = totalRoasWeighted / totalSpend;
+      campaign.avgCtr = totalCtrWeighted / totalSpend;
     }
   });
 
@@ -161,7 +171,6 @@ export const aggregateByAdSet = (data: AdPerformanceData[]): AdSetSummary[] => {
     adSet.totalResults += row.results;
     adSet.totalImpressions += row.impressions;
     adSet.totalReach += row.reach;
-    adSet.adCount += 1;
   });
 
   // Calculate averages
@@ -174,13 +183,23 @@ export const aggregateByAdSet = (data: AdPerformanceData[]): AdSetSummary[] => {
     adSet.adCount = uniqueAds.size; // Fix: count unique ads, not total rows
     adSet.costPerResult = adSet.totalResults > 0 ? adSet.totalSpend / adSet.totalResults : 0;
     
-    // Calculate weighted averages
+    // Calculate weighted averages across all daily records
     const totalSpend = adSet.totalSpend;
     if (totalSpend > 0) {
-      adSet.avgRoas = adSetAds.reduce((sum, ad) => 
-        sum + (ad.purchaseRoas * ad.amountSpent), 0) / totalSpend;
-      adSet.avgCtr = adSetAds.reduce((sum, ad) => 
-        sum + (ad.ctrAll * ad.amountSpent), 0) / totalSpend;
+      const totalRoasWeighted = adSetAds.reduce((sum, ad) => {
+        // Only include valid ROAS values (not NaN or 0) in the weighted average
+        const roas = isNaN(ad.purchaseRoas) ? 0 : ad.purchaseRoas;
+        return sum + (roas * ad.amountSpent);
+      }, 0);
+      
+      const totalCtrWeighted = adSetAds.reduce((sum, ad) => {
+        // Only include valid CTR values (not NaN or 0) in the weighted average  
+        const ctr = isNaN(ad.ctrAll) ? 0 : ad.ctrAll;
+        return sum + (ctr * ad.amountSpent);
+      }, 0);
+      
+      adSet.avgRoas = totalRoasWeighted / totalSpend;
+      adSet.avgCtr = totalCtrWeighted / totalSpend;
     }
   });
 
