@@ -75,7 +75,7 @@ interface FilterConfig {
 }
 
 export default function Dashboard({ data }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adsets' | 'ads'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adsets' | 'ads' | 'daily'>('overview');
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [selectedAdSet, setSelectedAdSet] = useState<string | null>(null);
   const [showPlatformColumn, setShowPlatformColumn] = useState(true);
@@ -175,6 +175,57 @@ export default function Dashboard({ data }: DashboardProps) {
   
   const campaigns = useMemo(() => aggregateByCampaign(filteredBaseData), [filteredBaseData]);
   const adSets = useMemo(() => aggregateByAdSet(filteredBaseData), [filteredBaseData]);
+
+  // Aggregate data by day
+  const dailyData = useMemo(() => {
+    const dayMap = new Map<string, any>();
+    
+    filteredBaseData.forEach(row => {
+      const day = row.day;
+      if (!day) return;
+      
+      if (!dayMap.has(day)) {
+        dayMap.set(day, {
+          day,
+          totalSpend: 0,
+          totalResults: 0,
+          totalImpressions: 0,
+          totalReach: 0,
+          campaignCount: new Set(),
+          adSetCount: new Set(),
+          adCount: new Set(),
+        });
+      }
+      
+      const dayData = dayMap.get(day)!;
+      dayData.totalSpend += row.amountSpent;
+      dayData.totalResults += row.results;
+      dayData.totalImpressions += row.impressions;
+      dayData.totalReach += row.reach;
+      dayData.campaignCount.add(row.campaignId);
+      dayData.adSetCount.add(row.adSetId);
+      dayData.adCount.add(row.adId);
+    });
+    
+    // Convert sets to counts and calculate averages
+    const dailyArray = Array.from(dayMap.values()).map(day => ({
+      ...day,
+      campaignCount: day.campaignCount.size,
+      adSetCount: day.adSetCount.size,
+      adCount: day.adCount.size,
+      avgRoas: day.totalSpend > 0 ? 
+        filteredBaseData
+          .filter(row => row.day === day.day)
+          .reduce((sum, ad) => sum + (ad.purchaseRoas * ad.amountSpent), 0) / day.totalSpend : 0,
+      avgCtr: day.totalSpend > 0 ? 
+        filteredBaseData
+          .filter(row => row.day === day.day)
+          .reduce((sum, ad) => sum + (ad.ctrAll * ad.amountSpent), 0) / day.totalSpend : 0,
+      costPerResult: day.totalResults > 0 ? day.totalSpend / day.totalResults : 0,
+    }));
+    
+    return dailyArray.sort((a, b) => b.day.localeCompare(a.day)); // Sort by date descending
+  }, [filteredBaseData]);
 
   // Filtered data based on selections
   const filteredAdSets = useMemo(() => {
@@ -580,6 +631,7 @@ export default function Dashboard({ data }: DashboardProps) {
         <nav className="-mb-px flex space-x-8">
           {[
             { key: 'overview', label: 'Overview' },
+            { key: 'daily', label: 'Daily' },
             { key: 'campaigns', label: 'Campaigns' },
             { key: 'adsets', label: 'Ad Sets' },
             { key: 'ads', label: 'Ads' },
@@ -587,7 +639,7 @@ export default function Dashboard({ data }: DashboardProps) {
             <button
               key={tab.key}
               onClick={() => {
-                setActiveTab(tab.key as 'overview' | 'campaigns' | 'adsets' | 'ads');
+                setActiveTab(tab.key as 'overview' | 'campaigns' | 'adsets' | 'ads' | 'daily');
                 // Clear selections when clicking tabs to reset breadcrumb
                 if (tab.key === 'adsets') {
                   setSelectedAdSet(null);
@@ -739,26 +791,30 @@ export default function Dashboard({ data }: DashboardProps) {
                     onClick={() => handleCampaignClick(campaign.campaignId)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{campaign.campaignName}</div>
+                          <div className="text-sm text-gray-500">ID: {campaign.campaignId}</div>
+                        </div>
                         <a
                           href={generateCampaignUrl(campaign.campaignId)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 hover:border-blue-300 transition-colors"
                           onClick={(e) => e.stopPropagation()}
+                          title="Open in Facebook Ads Manager"
                         >
-                          {campaign.campaignName}
+                          <svg 
+                            className="w-3 h-3 mr-1" 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          Open
                         </a>
-                        <svg 
-                          className="w-3 h-3 text-gray-400" 
-                          fill="none" 
-                          stroke="currentColor" 
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
                       </div>
-                      <div className="text-sm text-gray-500">ID: {campaign.campaignId}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatCurrency(campaign.totalSpend)}
@@ -830,30 +886,34 @@ export default function Dashboard({ data }: DashboardProps) {
                     onClick={() => handleAdSetClick(adSet.adSetId)}
                   >
                     <td className="px-6 py-4">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{adSet.adSetName}</div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {!selectedCampaign && (
+                              <div>Campaign: {adSet.campaignName}</div>
+                            )}
+                            <div>ID: {adSet.adSetId}</div>
+                          </div>
+                        </div>
                         <a
                           href={generateAdSetUrl(adSet.adSetId)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                          className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 hover:border-blue-300 transition-colors"
                           onClick={(e) => e.stopPropagation()}
+                          title="Open in Facebook Ads Manager"
                         >
-                          {adSet.adSetName}
+                          <svg 
+                            className="w-3 h-3 mr-1" 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                          </svg>
+                          Open
                         </a>
-                        <svg 
-                          className="w-3 h-3 text-gray-400" 
-                          fill="none" 
-                          stroke="currentColor" 
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {!selectedCampaign && (
-                          <div>Campaign: {adSet.campaignName}</div>
-                        )}
-                        <div>ID: {adSet.adSetId}</div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -1015,6 +1075,93 @@ export default function Dashboard({ data }: DashboardProps) {
                         </div>
                       </td>
                     )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'daily' && (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">
+              Daily Performance
+              <span className="text-sm font-normal text-gray-500 ml-2">
+                ({dailyData.length} days)
+              </span>
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Spend</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost/Result</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Impressions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaigns</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Sets</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ads</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filterAggregatedData(dailyData, filters)
+                  .sort((a, b) => b.day.localeCompare(a.day)) // Always sort by newest date first
+                  .map((day, index) => (
+                  <tr 
+                    key={day.day} 
+                    className={
+                      day.avgRoas >= 2.0 
+                        ? 'bg-green-50' 
+                        : day.avgRoas <= 1.0
+                        ? 'bg-red-50'
+                        : day.avgRoas > 1.0 && day.avgRoas < 2.0
+                        ? 'bg-yellow-50'
+                        : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                    }
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">
+                        {new Date(day.day + 'T00:00:00').toLocaleDateString('en-US', { 
+                          weekday: 'short', 
+                          month: 'short', 
+                          day: 'numeric' 
+                        })}
+                      </div>
+                      <div className="text-sm text-gray-500">{day.day}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatCurrency(day.totalSpend)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatNumber(day.totalResults)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {day.avgRoas.toFixed(2)}x
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatPercent(day.avgCtr)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatCurrencyDetailed(day.costPerResult)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatNumber(day.totalImpressions)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {day.campaignCount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {day.adSetCount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {day.adCount}
+                    </td>
                   </tr>
                 ))}
               </tbody>
