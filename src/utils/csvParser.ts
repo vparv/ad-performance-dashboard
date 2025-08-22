@@ -14,6 +14,62 @@ const cleanString = (value: string): string => {
   return value?.trim()?.replace(/^"(.*)"$/, '$1') || '';
 };
 
+// Helper function to calculate 3-day ROAS average for an entity
+const calculate3DayRoas = (data: AdPerformanceData[], entityId: string, entityType: 'campaign' | 'adSet' | 'ad'): number => {
+  // Get all daily data for this entity
+  let entityData: AdPerformanceData[];
+  
+  switch (entityType) {
+    case 'campaign':
+      entityData = data.filter(row => row.campaignId === entityId);
+      break;
+    case 'adSet':
+      entityData = data.filter(row => row.adSetId === entityId);
+      break;
+    case 'ad':
+      entityData = data.filter(row => row.adId === entityId);
+      break;
+    default:
+      return 0;
+  }
+
+  if (entityData.length === 0) return 0;
+
+  // Group by day and calculate daily totals for this entity
+  const dailyTotals = new Map<string, { spend: number; revenue: number }>();
+  
+  entityData.forEach(row => {
+    if (!row.day) return;
+    
+    if (!dailyTotals.has(row.day)) {
+      dailyTotals.set(row.day, { spend: 0, revenue: 0 });
+    }
+    
+    const dayTotal = dailyTotals.get(row.day)!;
+    dayTotal.spend += row.amountSpent;
+    // Revenue = spend * ROAS for this placement/platform
+    dayTotal.revenue += (row.amountSpent * row.purchaseRoas);
+  });
+
+  // Get the last 3 days of data (sorted by date descending)
+  const sortedDays = Array.from(dailyTotals.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .slice(0, 3);
+
+  if (sortedDays.length === 0) return 0;
+
+  // Calculate 3-day totals
+  let totalSpend = 0;
+  let totalRevenue = 0;
+  
+  sortedDays.forEach(([, totals]) => {
+    totalSpend += totals.spend;
+    totalRevenue += totals.revenue;
+  });
+
+  return totalSpend > 0 ? totalRevenue / totalSpend : 0;
+};
+
 export const parseAdPerformanceCSV = (csvContent: string): Promise<AdPerformanceData[]> => {
   return new Promise((resolve, reject) => {
     Papa.parse(csvContent, {
@@ -97,6 +153,7 @@ export const aggregateByCampaign = (data: AdPerformanceData[]): CampaignSummary[
         adSetCount: 0,
         starts: row.starts,
         ends: row.ends,
+        threeDayRoas: 0,
       });
     }
 
@@ -118,6 +175,9 @@ export const aggregateByCampaign = (data: AdPerformanceData[]): CampaignSummary[
     campaign.adSetCount = uniqueAdSets.size;
     campaign.adCount = uniqueAds.size; // Fix: count unique ads, not total rows
     campaign.costPerResult = campaign.totalResults > 0 ? campaign.totalSpend / campaign.totalResults : 0;
+    
+    // Calculate 3-day ROAS
+    campaign.threeDayRoas = calculate3DayRoas(data, campaign.campaignId, 'campaign');
     
     // Calculate weighted averages across all daily records
     const totalSpend = campaign.totalSpend;
@@ -163,6 +223,7 @@ export const aggregateByAdSet = (data: AdPerformanceData[]): AdSetSummary[] => {
         avgCtr: 0,
         costPerResult: 0,
         adCount: 0,
+        threeDayRoas: 0,
       });
     }
 
@@ -182,6 +243,9 @@ export const aggregateByAdSet = (data: AdPerformanceData[]): AdSetSummary[] => {
     
     adSet.adCount = uniqueAds.size; // Fix: count unique ads, not total rows
     adSet.costPerResult = adSet.totalResults > 0 ? adSet.totalSpend / adSet.totalResults : 0;
+    
+    // Calculate 3-day ROAS
+    adSet.threeDayRoas = calculate3DayRoas(data, adSet.adSetId, 'adSet');
     
     // Calculate weighted averages across all daily records
     const totalSpend = adSet.totalSpend;
@@ -205,3 +269,6 @@ export const aggregateByAdSet = (data: AdPerformanceData[]): AdSetSummary[] => {
 
   return adSets.sort((a, b) => b.totalSpend - a.totalSpend);
 };
+
+// Export the calculate3DayRoas function for use in Dashboard
+export { calculate3DayRoas };

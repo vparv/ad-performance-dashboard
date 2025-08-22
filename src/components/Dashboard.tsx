@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { AdPerformanceData } from '@/types/adData';
-import { aggregateByCampaign, aggregateByAdSet } from '@/utils/csvParser';
+import { aggregateByCampaign, aggregateByAdSet, calculate3DayRoas } from '@/utils/csvParser';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface DashboardProps {
   data: AdPerformanceData[];
+  onDateRangeChange?: (startDate?: string, endDate?: string) => void;
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
@@ -62,7 +63,7 @@ const generateAdSetUrl = (adSetId: string) => {
 };
 
 interface SortConfig {
-  column: 'spend' | 'results' | 'roas' | 'ctr' | null;
+  column: 'spend' | 'results' | 'roas' | 'threeDayRoas' | 'ctr' | null;
   direction: 'asc' | 'desc';
 }
 
@@ -74,8 +75,9 @@ interface FilterConfig {
   dateEnd: string | null;
 }
 
-export default function Dashboard({ data }: DashboardProps) {
+export default function Dashboard({ data, onDateRangeChange }: DashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'campaigns' | 'adsets' | 'ads' | 'daily'>('overview');
+  console.log('Current activeTab:', activeTab);
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [selectedAdSet, setSelectedAdSet] = useState<string | null>(null);
   const [showPlatformColumn, setShowPlatformColumn] = useState(true);
@@ -88,6 +90,42 @@ export default function Dashboard({ data }: DashboardProps) {
     dateStart: null,
     dateEnd: null
   });
+
+  // Track last reload to prevent infinite loops
+  const lastReloadRef = useRef<string>('');
+  const reloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Auto-reload data when both date filters are set (with debounce)
+  useEffect(() => {
+    if (onDateRangeChange && filters.dateStart && filters.dateEnd) {
+      const dateKey = `${filters.dateStart}-${filters.dateEnd}`;
+      
+      // Skip if this is the same date range we just loaded
+      if (lastReloadRef.current === dateKey) {
+        console.log('⏩ Skipping reload - same date range already loaded');
+        return;
+      }
+      
+      // Clear any existing timeout
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current);
+      }
+      
+      // Debounce the reload by 500ms
+      reloadTimeoutRef.current = setTimeout(() => {
+        console.log('🔄 Auto-reloading data for date range:', filters.dateStart, 'to', filters.dateEnd);
+        lastReloadRef.current = dateKey;
+        onDateRangeChange(filters.dateStart!, filters.dateEnd!);
+      }, 500);
+    }
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (reloadTimeoutRef.current) {
+        clearTimeout(reloadTimeoutRef.current);
+      }
+    };
+  }, [filters.dateStart, filters.dateEnd, onDateRangeChange]);
 
   // Helper function for filtering raw data (with date field)
   const filterData = <T extends { totalSpend?: number; amountSpent?: number; avgRoas?: number; purchaseRoas?: number; day?: string; reportingStarts?: string; reportingEnds?: string; starts?: string; ends?: string }>(
@@ -178,11 +216,26 @@ export default function Dashboard({ data }: DashboardProps) {
 
   // Aggregate data by day
   const dailyData = useMemo(() => {
-    const dayMap = new Map<string, any>();
+    console.log('Daily aggregation - filteredBaseData length:', filteredBaseData.length);
+    console.log('Sample data with day field:', filteredBaseData.slice(0, 3).map(r => ({ day: r.day, adName: r.adName })));
+    
+    const dayMap = new Map<string, {
+      day: string;
+      totalSpend: number;
+      totalResults: number;
+      totalImpressions: number;
+      totalReach: number;
+      campaignCount: Set<string>;
+      adSetCount: Set<string>;
+      adCount: Set<string>;
+    }>();
     
     filteredBaseData.forEach(row => {
       const day = row.day;
-      if (!day) return;
+      if (!day) {
+        console.log('Row missing day field:', { adName: row.adName, day: row.day });
+        return;
+      }
       
       if (!dayMap.has(day)) {
         dayMap.set(day, {
@@ -226,6 +279,7 @@ export default function Dashboard({ data }: DashboardProps) {
     
     return dailyArray.sort((a, b) => b.day.localeCompare(a.day)); // Sort by date descending
   }, [filteredBaseData]);
+
 
   // Filtered data based on selections
   const filteredAdSets = useMemo(() => {
@@ -279,7 +333,7 @@ export default function Dashboard({ data }: DashboardProps) {
         }
         
         // Use most favorable status (active > not_delivering > inactive > archived)
-        const statusPriority = { 'active': 4, 'not_delivering': 3, 'inactive': 2, 'archived': 1 };
+        const statusPriority: Record<string, number> = { 'active': 4, 'not_delivering': 3, 'inactive': 2, 'archived': 1 };
         const currentPriority = statusPriority[existing.deliveryStatus] || 0;
         const newPriority = statusPriority[ad.deliveryStatus] || 0;
         if (newPriority > currentPriority) {
@@ -329,14 +383,14 @@ export default function Dashboard({ data }: DashboardProps) {
     setActiveTab('overview');
   };
 
-  const handleSort = (column: 'spend' | 'results' | 'roas' | 'ctr') => {
+  const handleSort = (column: 'spend' | 'results' | 'roas' | 'threeDayRoas' | 'ctr') => {
     setSortConfig(prev => ({
       column,
       direction: prev.column === column && prev.direction === 'desc' ? 'asc' : 'desc'
     }));
   };
 
-  const sortData = <T extends { totalSpend?: number; amountSpent?: number; totalResults?: number; results?: number; avgRoas?: number; purchaseRoas?: number; avgCtr?: number; ctrAll?: number; deliveryStatus?: string }>(
+  const sortData = <T extends { totalSpend?: number; amountSpent?: number; totalResults?: number; results?: number; avgRoas?: number; purchaseRoas?: number; threeDayRoas?: number; avgCtr?: number; ctrAll?: number; deliveryStatus?: string; adId?: string }>(
     data: T[], 
     config: SortConfig
   ): T[] => {
@@ -367,6 +421,11 @@ export default function Dashboard({ data }: DashboardProps) {
           aValue = a.avgRoas || a.purchaseRoas || 0;
           bValue = b.avgRoas || b.purchaseRoas || 0;
           break;
+        case 'threeDayRoas':
+          // For individual ads, calculate on demand; for aggregated data, use pre-calculated value
+          aValue = a.threeDayRoas !== undefined ? a.threeDayRoas : (a.adId ? calculate3DayRoas(filteredBaseData, a.adId, 'ad') : 0);
+          bValue = b.threeDayRoas !== undefined ? b.threeDayRoas : (b.adId ? calculate3DayRoas(filteredBaseData, b.adId, 'ad') : 0);
+          break;
         case 'ctr':
           aValue = a.avgCtr || a.ctrAll || 0;
           bValue = b.avgCtr || b.ctrAll || 0;
@@ -377,7 +436,7 @@ export default function Dashboard({ data }: DashboardProps) {
     });
   };
 
-  const SortableHeader = ({ column, children }: { column: 'spend' | 'results' | 'roas' | 'ctr'; children: React.ReactNode }) => (
+  const SortableHeader = ({ column, children }: { column: 'spend' | 'results' | 'roas' | 'threeDayRoas' | 'ctr'; children: React.ReactNode }) => (
     <th 
       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 transition-colors"
       onClick={() => handleSort(column)}
@@ -769,6 +828,7 @@ export default function Dashboard({ data }: DashboardProps) {
                   <SortableHeader column="spend">Spend</SortableHeader>
                   <SortableHeader column="results">Results</SortableHeader>
                   <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="threeDayRoas">3-day ROAS</SortableHeader>
                   <SortableHeader column="ctr">CTR</SortableHeader>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost/Result</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ad Sets</th>
@@ -826,6 +886,9 @@ export default function Dashboard({ data }: DashboardProps) {
                       {campaign.avgRoas.toFixed(2)}x
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {campaign.threeDayRoas.toFixed(2)}x
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatPercent(campaign.avgCtr)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -865,6 +928,7 @@ export default function Dashboard({ data }: DashboardProps) {
                   <SortableHeader column="spend">Spend</SortableHeader>
                   <SortableHeader column="results">Results</SortableHeader>
                   <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="threeDayRoas">3-day ROAS</SortableHeader>
                   <SortableHeader column="ctr">CTR</SortableHeader>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost/Result</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ads</th>
@@ -924,6 +988,9 @@ export default function Dashboard({ data }: DashboardProps) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {adSet.avgRoas.toFixed(2)}x
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {adSet.threeDayRoas.toFixed(2)}x
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatPercent(adSet.avgCtr)}
@@ -993,6 +1060,7 @@ export default function Dashboard({ data }: DashboardProps) {
                   <SortableHeader column="spend">Spend</SortableHeader>
                   <SortableHeader column="results">Results</SortableHeader>
                   <SortableHeader column="roas">ROAS</SortableHeader>
+                  <SortableHeader column="threeDayRoas">3-day ROAS</SortableHeader>
                   <SortableHeader column="ctr">CTR</SortableHeader>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   {showPlatformColumn && (
@@ -1041,6 +1109,9 @@ export default function Dashboard({ data }: DashboardProps) {
                       {ad.purchaseRoas.toFixed(2)}x
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {calculate3DayRoas(filteredBaseData, ad.adId, 'ad').toFixed(2)}x
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatPercent(ad.ctrAll)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -1084,15 +1155,16 @@ export default function Dashboard({ data }: DashboardProps) {
       )}
 
       {activeTab === 'daily' && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">
-              Daily Performance
-              <span className="text-sm font-normal text-gray-500 ml-2">
-                ({dailyData.length} days)
-              </span>
-            </h3>
-          </div>
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">
+                Daily Performance
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  ({dailyData.length} days)
+                </span>
+              </h3>
+            </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -1167,6 +1239,7 @@ export default function Dashboard({ data }: DashboardProps) {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
     </div>

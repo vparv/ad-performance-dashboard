@@ -56,6 +56,7 @@ export interface CampaignSummary {
   adSetCount: number;
   starts: string;
   ends: string;
+  threeDayRoas: number;
 }
 
 export interface AdSetSummary {
@@ -71,6 +72,7 @@ export interface AdSetSummary {
   avgCtr: number;
   costPerResult: number;
   adCount: number;
+  threeDayRoas: number;
 }
 
 // Helper type for CSV parsing
@@ -104,5 +106,6 @@ export const CSV_COLUMN_MAPPING = {
   "CTR (all)": "ctrAll",
   "Result rate": "resultRate",
   "Reporting starts": "reportingStarts",
-  "Reporting ends": "reportingEnds"
+  "Reporting ends": "reportingEnds",
+  "Day": "day"
 } as const;
